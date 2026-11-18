@@ -1,0 +1,130 @@
+AgentWeather
+Project Overview
+Forecast six weather and air-quality metrics for your city over the next 24 hours using a fully managed serverless stack. Build an end-to-end machine learning pipeline with automated data collection, feature engineering, model training, and a deployed web dashboard. A LangGraph agent layer produces forecasts, writes alerts and a news-style weather report, and monitors data and model drift. Log every agent decision. Metrics to predict: AQI, temperature (°C), precipitation (mm and rain probability), humidity (%), UV Index, and wind (speed and direction).
+
+Technology Stack
+Required technologies and tools:
+
+Python
+Scikit-learn
+TensorFlow or PyTorch
+SARIMAX or Prophet
+Hopsworks for the Feature Store and Model Registry
+LangGraph
+Any LLM API, such as the free Groq API
+GitHub Actions
+Streamlit or Gradio
+OpenWeather and AQICN APIs
+SHAP or LIME
+Git
+Key Features
+•
+Feature Pipeline Development
+•
+Fetch raw weather and pollutant data for your city from sources such as OpenWeather and AQICN.
+•
+Fuse and time-align sources into one record per timestamp. Average them, use source priority, or keep both as separate features.
+•
+Impute missing values caused by API downtime or sensor gaps using a documented strategy.
+•
+Compute time-based features (hour, day, month) and derived features (rate of change, rolling averages).
+•
+Store features and raw observations in the Hopsworks Feature Store.
+•
+Run the pipeline every hour.
+•
+Historical Data Backfill
+•
+Run the same feature pipeline for past dates to build training data.
+•
+Create targets by shifting observations 24 hours ahead.
+•
+Use the newest 24 hours, which have no target yet, for forecasting only.
+•
+Training Pipeline Implementation
+•
+Fetch features and targets from the Feature Store.
+•
+Train and evaluate at least three models from different families: statistical (SARIMAX or Prophet), classical ML (Ridge or Random Forest), and deep learning (LSTM).
+•
+Use a time-based train/validation split.
+•
+Compare every model against a naive baseline: the value from 24 hours ago.
+•
+Evaluate each metric using RMSE, MAE, and R².
+•
+Store models in the Model Registry. Replace the current model only when a new model scores better on validation.
+•
+Run daily and whenever the Drift Agent requests training.
+•
+Agentic Reasoning Layer
+•
+Build four agents as nodes in one LangGraph graph, sharing state saved in the Forecast Ledger between runs.
+•
+Forecast Agent: Load the latest features and best model, produce a 24-hour-ahead forecast for each metric, save it to the Feature Store, and pass it to the other agents. Run hourly after ingestion.
+•
+Alert Agent: Use fixed rules to check all six metrics for hazards and write alerts for the general public, sensitive groups, and outdoor workers.
+•
+Weather Report Agent: Write one news-style report from the forecasts and alerts. Run daily and after a new alert.
+•
+Drift Agent: Detect drift, alert the team, and trigger an extra training run when drift crosses a threshold.
+•
+The Alert and Weather Report agents may use any LLM and must have proper fallbacks.
+•
+The Drift Agent must check both data drift (live features versus training features) and model drift (recent forecast error versus usual validation error).
+•
+Logging and Monitoring
+•
+Forecast Ledger: Log every model forecast, including time, metric, and forecast.
+•
+Agent call log: Log the prompt, response, latency, and status of every LLM call. Record failed calls in the failure log.
+•
+Drift log: Log each drift event, including time, metric, drift type, score, threshold, and action taken.
+•
+Store all logs in the Feature Store.
+•
+Automated CI/CD Pipeline
+•
+Use GitHub Actions to run the feature and ingestion script every hour.
+•
+Run the training script daily and when drift is detected.
+•
+Web Application Dashboard
+•
+Deploy on a free host such as Streamlit Community Cloud, Hugging Face Spaces, or Render.
+•
+Present a weather report with 24-hour forecasts for all six metrics and the news-style weather report.
+•
+Include an Agent Activity panel with alerts.
+•
+Show EDA and SHAP/LIME explanations.
+•
+Show drift events and metrics, and failed agent calls.
+•
+Advanced Analytics Features
+•
+Perform thorough EDA on each metric before modelling.
+•
+Explain models with SHAP, LIME, or another explainability method.
+•
+Add alerts for hazardous levels across all metrics.
+•
+Final Submissions
+•
+Submit the GitHub repository URL only.
+•
+Forecasting system: The repository must contain an end-to-end automated forecasting system with a working agentic layer.
+•
+Dashboard: Include the URL of the deployed, publicly accessible dashboard with all components listed above.
+•
+Report: Include a report covering data sources, imputation, model choices, issues and fixes, and agent performance, including alert quality, drift detection, and LLM call failures.
+Projects Resources
+Helpful resources and tutorials:
+
+https://openweathermap.org/api
+https://aqicn.org/api/
+https://docs.hopsworks.ai/
+https://langchain-ai.github.io/langgraph/
+https://docs.github.com/actions
+https://shap.readthedocs.io/
+https://lime-ml.readthedocs.io/en/latest/
