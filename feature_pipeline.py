@@ -487,7 +487,7 @@ def save_to_hopsworks(
     """
     Save the feature DataFrame to the Hopsworks Feature Store.
 
-    Requires hsfs library and Hopsworks credentials via environment variables:
+    Requires hopsworks library and Hopsworks credentials via environment variables:
       - HOPSWORKS_API_KEY: Hopsworks API key
       - HOPSWORKS_PROJECT: Hopsworks project name
       - HOPSWORKS_HOST: (optional) Hopsworks host, defaults to cloud
@@ -507,19 +507,19 @@ def save_to_hopsworks(
         True if save succeeded, False otherwise.
     """
     try:
-        import hsfs
+        import hopsworks
     except ImportError:
         logger.warning(
-            "hsfs not installed — skipping Hopsworks save. "
+            "hopsworks not installed — skipping Hopsworks save. "
             "Install with: uv add hopsworks[python]"
         )
         return False
 
     api_key = os.getenv("HOPSWORKS_API_KEY")
-    project = os.getenv("HOPSWORKS_PROJECT")
+    project_name = os.getenv("HOPSWORKS_PROJECT")
     host = os.getenv("HOPSWORKS_HOST")
 
-    if not api_key or not project:
+    if not api_key or not project_name:
         logger.warning(
             "HOPSWORKS_API_KEY or HOPSWORKS_PROJECT not set — "
             "skipping Hopsworks save."
@@ -527,29 +527,29 @@ def save_to_hopsworks(
         return False
 
     try:
-        conn = hsfs.connection(
+        # project = hopsworks.login(
+        #     host=host,
+        #     project=project_name,
+        #     api_key=api_key,
+        # )
+        project = hopsworks.login(
             host=host,
-            project=project,
-            api_key=api_key,
+            project=project_name,
+            api_key_value=api_key
         )
-        fs = conn.get_feature_store()
+        fs = project.get_feature_store()
 
-        # Get or create the feature group
-        try:
-            fg = fs.get_feature_group(
-                name=feature_group_name,
-                version=feature_group_version,
-            )
-        except Exception:
-            fg = fs.create_feature_group(
-                name=feature_group_name,
-                version=feature_group_version,
-                primary_key=["timestamp_utc"],
-                description="Weather and air quality features from Open-Meteo and OpenAQ",
-                online_enabled=True,
-            )
+        # Get or create the feature group (single method in the new API)
+        fg = fs.get_or_create_feature_group(
+            name=feature_group_name,
+            version=feature_group_version,
+            primary_key=["timestamp_utc"],
+            description="Weather and air quality features from Open-Meteo and OpenAQ",
+            online_enabled=True,
+            time_travel_format="HUDI",
+        )
 
-        fg.insert(features_df, write_options={"wait_for_job": False})
+        fg.insert(features_df)
         logger.info(
             f"Features saved to Hopsworks feature group '{feature_group_name}' "
             f"v{feature_group_version}"
