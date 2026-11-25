@@ -37,4 +37,4 @@ jobs:
           HOPSWORKS_PROJECT: ${{ secrets.HOPSWORKS_PROJECT }}
           HOPSWORKS_HOST: ${{ secrets.HOPSWORKS_HOST }}
         run: |
-          python feature_pipeline/feature_pipeline.py
+          python src/feature_pipeline/feature_pipeline.py
