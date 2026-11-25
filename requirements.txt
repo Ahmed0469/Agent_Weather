@@ -1,2 +1,4 @@
 pandas
 requests
+dotenv
+hopsworks[python]
