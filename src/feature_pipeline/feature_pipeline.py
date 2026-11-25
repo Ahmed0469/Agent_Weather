@@ -348,7 +348,9 @@ def build_features(raw: Dict[str, Any]) -> pd.DataFrame:
     openaq_data = raw.get("openaq", {})
 
     timestamp_str = w_curr.get("time")
-    timestamp_utc = pd.to_datetime(timestamp_str) if timestamp_str else pd.Timestamp.utcnow()
+    timestamp_utc = (
+        pd.to_datetime(timestamp_str).floor("h") if timestamp_str else pd.Timestamp.utcnow().floor("h")
+    )
 
     temp_c = _safe_float(w_curr.get("temperature_2m"))
     humidity_pct = _safe_float(w_curr.get("relative_humidity_2m"))
