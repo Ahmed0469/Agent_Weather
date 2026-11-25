@@ -547,7 +547,11 @@ def save_to_hopsworks(
     project_name = os.getenv("HOPSWORKS_PROJECT")
     host = os.getenv("HOPSWORKS_HOST")
 
-    # Clean host value: strip whitespace and remove surrounding quotes
+    # Clean values: strip whitespace and remove surrounding quotes (in case secrets were copy-pasted with quotes)
+    if api_key:
+        api_key = api_key.strip().strip('"').strip("'")
+    if project_name:
+        project_name = project_name.strip().strip('"').strip("'")
     if host:
         host = host.strip().strip('"').strip("'")
 
@@ -604,6 +608,8 @@ def main():
     lon = float(os.getenv("WEATHER_LON", None))
 
     openaq_api_key = os.getenv("OPENAQ_API_KEY", None)
+    if openaq_api_key:
+        openaq_api_key = openaq_api_key.strip().strip('"').strip("'")
 
     logger.info(f"Starting feature pipeline for lat={lat}, lon={lon}")
 
