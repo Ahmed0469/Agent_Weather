@@ -21,6 +21,7 @@ Author: Agent-Weather
 import os
 import json
 import logging
+import time
 from typing import Optional, Dict, Any
 from datetime import datetime, timezone, timedelta
 
@@ -39,6 +40,36 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
 logger = logging.getLogger("feature_pipeline")
+
+
+# ---------------------------------------------------------------------------
+# HTTP retry helper
+# ---------------------------------------------------------------------------
+def _request_with_retry(method: str, url: str, max_retries: int = 3, backoff_factor: float = 2.0, **kwargs):
+    """Make an HTTP request with retry logic for transient failures.
+
+    Retries on timeout and connection errors with exponential backoff.
+    """
+    timeout = kwargs.pop("timeout", 30)
+    for attempt in range(max_retries):
+        try:
+            resp = requests.request(method, url, timeout=timeout, **kwargs)
+            resp.raise_for_status()
+            return resp
+        except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as exc:
+            if attempt < max_retries - 1:
+                wait = backoff_factor ** attempt
+                logger.warning(
+                    f"Request attempt {attempt + 1}/{max_retries} failed: {exc}. "
+                    f"Retrying in {wait}s..."
+                )
+                time.sleep(wait)
+            else:
+                logger.error(f"Request failed after {max_retries} attempts: {exc}")
+                raise
+        except requests.exceptions.RequestException as exc:
+            logger.error(f"Request failed: {exc}")
+            raise
 
 # ---------------------------------------------------------------------------
 # API Endpoints
@@ -88,7 +119,7 @@ def fetch_openmeteo_weather(
         "timezone": "UTC",
     }
     try:
-        resp = requests.get(OM_WEATHER_URL, params=params, timeout=15)
+        resp = _request_with_retry("GET", OM_WEATHER_URL, params=params, timeout=30)
         resp.raise_for_status()
         data = resp.json()
         logger.info("Open-Meteo Weather fetched successfully")
@@ -122,7 +153,7 @@ def fetch_openmeteo_aqi(
         "timezone": "UTC",
     }
     try:
-        resp = requests.get(OM_AQ_URL, params=params, timeout=15)
+        resp = _request_with_retry("GET", OM_AQ_URL, params=params, timeout=30)
         resp.raise_for_status()
         data = resp.json()
         logger.info("Open-Meteo Air Quality fetched successfully")
@@ -168,10 +199,8 @@ def fetch_openaq(
     # Fetch metadata & sensor IDs for the location
     # ------------------------------------------------------------------
     try:
-        loc_res = requests.get(
-            f"{base_oaq}/locations/{location_id}",
-            headers=headers,
-            timeout=15,
+        loc_res = _request_with_retry(
+            "GET", f"{base_oaq}/locations/{location_id}", headers=headers, timeout=30
         ).json()
     except Exception as exc:
         logger.error(f"OpenAQ location fetch failed: {exc}")
@@ -213,10 +242,8 @@ def fetch_openaq(
     # Fetch latest measurements for the location
     # ------------------------------------------------------------------
     try:
-        latest_res = requests.get(
-            f"{base_oaq}/locations/{location_id}/latest",
-            headers=headers,
-            timeout=15,
+        latest_res = _request_with_retry(
+            "GET", f"{base_oaq}/locations/{location_id}/latest", headers=headers, timeout=30
         ).json()
     except Exception as exc:
         logger.error(f"OpenAQ latest fetch failed: {exc}")
@@ -234,7 +261,8 @@ def fetch_openaq(
     for param_name, s_id in sensor_ids.items():
         if param_name == "pm25":
             try:
-                h_res = requests.get(
+                h_res = _request_with_retry(
+                    "GET",
                     f"{base_oaq}/sensors/{s_id}/hours",
                     params={
                         "datetime_from": dt_from,
@@ -242,7 +270,7 @@ def fetch_openaq(
                         "limit": 48,
                     },
                     headers=headers,
-                    timeout=15,
+                    timeout=30,
                 ).json()
             except Exception as exc:
                 logger.error(f"OpenAQ hourly fetch failed for {param_name}: {exc}")
@@ -519,12 +547,21 @@ def save_to_hopsworks(
     project_name = os.getenv("HOPSWORKS_PROJECT")
     host = os.getenv("HOPSWORKS_HOST")
 
+    # Clean host value: strip whitespace and remove surrounding quotes
+    if host:
+        host = host.strip().strip('"').strip("'")
+
     if not api_key or not project_name:
         logger.warning(
             "HOPSWORKS_API_KEY or HOPSWORKS_PROJECT not set — "
             "skipping Hopsworks save."
         )
         return False
+
+    if not host:
+        logger.warning(
+            "HOPSWORKS_HOST not set — using default Hopsworks cloud host."
+        )
 
     try:
         # project = hopsworks.login(

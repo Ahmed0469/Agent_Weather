@@ -2,7 +2,7 @@
   "om_weather": {
     "latitude": 24.850615,
     "longitude": 66.992485,
-    "generationtime_ms": 0.1308917999267578,
+    "generationtime_ms": 0.1951456069946289,
     "utc_offset_seconds": 0,
     "timezone": "GMT",
     "timezone_abbreviation": "GMT",
@@ -19,15 +19,15 @@
       "wind_direction_10m": "\u00b0"
     },
     "current": {
-      "time": "2026-11-25T04:15",
+      "time": "2026-11-25T04:45",
       "interval": 900,
-      "temperature_2m": 23.2,
-      "relative_humidity_2m": 60,
+      "temperature_2m": 24.7,
+      "relative_humidity_2m": 59,
       "precipitation": 0.0,
       "precipitation_probability": 0,
       "rain": 0.0,
-      "wind_speed_10m": 0.71,
-      "wind_direction_10m": 8
+      "wind_speed_10m": 0.5,
+      "wind_direction_10m": 6
     },
     "hourly_units": {
       "time": "iso8601",
@@ -261,7 +261,7 @@
   "om_aq": {
     "latitude": 24.900002,
     "longitude": 67.0,
-    "generationtime_ms": 0.17070770263671875,
+    "generationtime_ms": 0.1938343048095703,
     "utc_offset_seconds": 0,
     "timezone": "GMT",
     "timezone_abbreviation": "GMT",
