@@ -1,9 +1,6 @@
 name: Run Feature Pipeline Hourly
 
 on:
-  schedule:
-    - cron: '22 * * * *'  # Every hour, on the hour
-      timezone: 'Asia/Karachi'
   workflow_dispatch:  # Allow manual runs
 
 env:
