@@ -24,6 +24,11 @@ import logging
 import time
 from typing import Optional, Dict, Any
 from datetime import datetime, timezone, timedelta
+from zoneinfo import ZoneInfo
+
+# Karachi time zone (Asia/Karachi, UTC+5, no DST) — used for all timestamps
+# in this pipeline and in history_backfill.py (imports KARACHI_TZ from here).
+KARACHI_TZ = ZoneInfo("Asia/Karachi")
 
 import requests
 import numpy as np
@@ -76,6 +81,7 @@ def _request_with_retry(method: str, url: str, max_retries: int = 3, backoff_fac
 # ---------------------------------------------------------------------------
 OM_WEATHER_URL = "https://api.open-meteo.com/v1/forecast"
 OM_AQ_URL = "https://air-quality-api.open-meteo.com/v1/air-quality"
+OM_ARCHIVE_URL = "https://archive-api.open-meteo.com/v1/archive"
 OPENAQ_V3_URL = "https://api.openaq.org/v3"
 
 # ---------------------------------------------------------------------------
@@ -86,72 +92,146 @@ def fetch_openmeteo_weather(
     lon: float,
     past_hours: int = 24,
     forecast_hours: int = 1,
+    past_days : int = 7,
+    fetch_days : bool = False,
+    fetch_history_data  : bool = False,
+    start_date : str = None,
+    end_date : str = None,
 ) -> Dict[str, Any]:
     """
     Fetch current and hourly weather data from Open-Meteo Forecast API.
 
     Returns the raw JSON response dict.
     """
-    params = {
-        "latitude": lat,
-        "longitude": lon,
-        "current": [
-            "temperature_2m",
-            "relative_humidity_2m",
-            "precipitation",
-            "precipitation_probability",
-            "rain",
-            "wind_speed_10m",
-            "wind_direction_10m",
-        ],
-        "hourly": [
-            "temperature_2m",
-            "relative_humidity_2m",
-            "precipitation",
-            "precipitation_probability",
-            "rain",
-            "wind_speed_10m",
-            "wind_direction_10m",
-        ],
-        "wind_speed_unit": "ms",
-        "past_hours": past_hours,
-        "forecast_hours": forecast_hours,
-        "timezone": "UTC",
-    }
-    try:
-        resp = _request_with_retry("GET", OM_WEATHER_URL, params=params, timeout=30)
-        resp.raise_for_status()
-        data = resp.json()
-        logger.info("Open-Meteo Weather fetched successfully")
-        return data
-    except Exception as exc:
-        logger.error(f"Open-Meteo Weather fetch failed: {exc}")
-        return {}
+    if fetch_history_data:
+        params = {
+                "latitude": lat,
+                "longitude": lon,
+                "start_date": start_date,
+                "end_date": end_date,
+                "hourly": [
+                    "temperature_2m",
+                    "relative_humidity_2m",
+                    "precipitation",
+                    "precipitation_probability",
+                    "rain",
+                    "wind_speed_10m",
+                    "wind_direction_10m",
+                ],
+                "timezone": "Asia/Karachi",
+            }
+    elif fetch_days:
+        params = {
+                "latitude": lat,
+                "longitude": lon,                
+                "hourly": [
+                    "temperature_2m",
+                    "relative_humidity_2m",
+                    "precipitation",
+                    "rain",                    
+                    "wind_speed_10m",
+                    "wind_direction_10m",
+                ],
+                "past_days": past_days,
+                "timezone": "Asia/Karachi",
+            }
+    else:
+        params = {
+            "latitude": lat,
+            "longitude": lon,
+            "current": [
+                "temperature_2m",
+                "relative_humidity_2m",
+                "precipitation",
+                "rain",
+                "wind_speed_10m",
+                "wind_direction_10m",
+            ],
+            "hourly": [
+                "temperature_2m",
+                "relative_humidity_2m",
+                "precipitation",
+                "rain",
+                "wind_speed_10m",
+                "wind_direction_10m",
+            ],
+            "past_hours": past_hours,
+            "forecast_hours": forecast_hours,
+            "timezone": "Asia/Karachi",
+        }
+    if fetch_history_data:
+        try:
+            resp = _request_with_retry("GET", OM_ARCHIVE_URL, params=params, timeout=120)
+            resp.raise_for_status()
+            data = resp.json()
+            hourly = data.get("hourly", {})
+            times = hourly.get("time", [])
+            logger.info(
+                f"Open-Meteo Archive Weather fetched: {len(times)} hourly records "
+                f"({times[0]} to {times[-1] if times else 'N/A'})"
+            )
+            return data
+        except Exception as exc:
+            logger.error(f"Open-Meteo Archive Weather fetch failed: {exc}")
+            return {}
+    else:
+        try:
+            resp = _request_with_retry("GET", OM_WEATHER_URL, params=params, timeout=30)
+            resp.raise_for_status()
+            data = resp.json()
+            logger.info("Open-Meteo Weather fetched successfully")
+            return data
+        except Exception as exc:
+            logger.error(f"Open-Meteo Weather fetch failed: {exc}")
+            return {}
 
 def fetch_openmeteo_aqi(
     lat: float,
     lon: float,
     past_hours: int = 24,
     forecast_hours: int = 1,
+    past_days : int = 7,
+    fetch_days : bool = False,
+    fetch_history_data  : bool = False,
+    start_date : str = None,
+    end_date : str = None,
 ) -> Dict[str, Any]:
     """
     Fetch current and hourly air quality data from Open-Meteo Air Quality API.
 
     Returns the raw JSON response dict.
     """
-    params = {
-        "latitude": lat,
-        "longitude": lon,
-        "current": [
-            "uv_index",
-        ],
-        "hourly": [
-            "uv_index",
-        ],
-        "past_hours": past_hours,
-        "forecast_hours": forecast_hours,
-        "timezone": "UTC",
-    }
+    if fetch_history_data:
+        params = {
+                "latitude": lat,
+                "longitude": lon,
+                "hourly": ["uv_index"],
+                "start_date": start_date,
+                "end_date": end_date,
+                "timezone": "Asia/Karachi",
+            }
+    elif fetch_days:
+        params = {
+                "latitude": lat,
+                "longitude": lon,
+                "hourly": ["uv_index"],
+                "past_days": past_days,
+                "timezone": "Asia/Karachi",
+            }
+    else:        
+        params = {
+            "latitude": lat,
+            "longitude": lon,
+            "current": [
+                "uv_index",
+            ],
+            "hourly": [
+                "uv_index",
+            ],
+            "past_hours": past_hours,
+            "forecast_hours": forecast_hours,
+            "timezone": "Asia/Karachi",
+        }
     try:
         resp = _request_with_retry("GET", OM_AQ_URL, params=params, timeout=30)
         resp.raise_for_status()
@@ -163,12 +243,15 @@ def fetch_openmeteo_aqi(
         return {}
 
 def fetch_openaq(
-    location_id: int = 4837117,
+    location_id: int = 4814327,
     api_key: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Fetch latest and hourly air quality data from OpenAQ API v3
     for a specific location ID (default 4837117), pm25 only.
+
+    Uses the known PM2.5 sensor ID (13406434) directly, avoiding
+    an extra API call to discover sensor metadata.
 
     Requires an API key for v3. If no key is provided, returns an empty dict.
 
@@ -185,6 +268,8 @@ def fetch_openaq(
         Payload with keys: location_id, location_name, sensor_ids,
         latest (dict of param -> value), hourly (dict of param -> list of records).
     """
+    # PM25_SENSOR_ID = 13406434  # Known PM2.5 sensor ID for location 4837117
+
     if api_key is None:
         logger.warning(
             "OpenAQ API key not provided — skipping OpenAQ fetch. "
@@ -196,7 +281,24 @@ def fetch_openaq(
     base_oaq = OPENAQ_V3_URL
 
     # ------------------------------------------------------------------
-    # Fetch metadata & sensor IDs for the location
+    # Time window for hourly history (past 26 hours), anchored to Karachi
+    # now. OpenAQ v3 requires UTC RFC3339 strings, so convert at the API
+    # boundary.
+    # ------------------------------------------------------------------
+    now_khi = datetime.now(KARACHI_TZ)
+    dt_from = (now_khi - timedelta(hours=26)).astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    dt_to = now_khi.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    openaq_payload = {
+        "location_id": location_id,
+        "location_name": None,
+        "sensor_ids": {"pm25": None},
+        "latest": {},
+        "hourly": {},
+    }
+
+    # ------------------------------------------------------------------
+    # Fetch latest measurements for the location
     # ------------------------------------------------------------------
     try:
         loc_res = _request_with_retry(
@@ -222,25 +324,7 @@ def fetch_openaq(
     if not sensor_ids:
         logger.warning("No pm25 sensor found for OpenAQ location %s", location_id)
         return {}
-
-    # ------------------------------------------------------------------
-    # Time window for hourly history (past 26 hours)
-    # ------------------------------------------------------------------
-    now_utc = datetime.now(timezone.utc)
-    dt_from = (now_utc - timedelta(hours=26)).strftime("%Y-%m-%dT%H:%M:%SZ")
-    dt_to = now_utc.strftime("%Y-%m-%dT%H:%M:%SZ")
-
-    openaq_payload = {
-        "location_id": location_id,
-        "location_name": loc_info.get("name") if isinstance(loc_info, dict) else None,
-        "sensor_ids": sensor_ids,
-        "latest": {},
-        "hourly": {},
-    }
-
-    # ------------------------------------------------------------------
-    # Fetch latest measurements for the location
-    # ------------------------------------------------------------------
+    
     try:
         latest_res = _request_with_retry(
             "GET", f"{base_oaq}/locations/{location_id}/latest", headers=headers, timeout=30
@@ -254,35 +338,35 @@ def fetch_openaq(
         p_name = id_to_param.get(item.get("sensorsId"))
         if p_name:
             openaq_payload["latest"][p_name] = item.get("value")
+            openaq_payload["sensor_ids"][p_name] = item.get("sensorsId")
+
 
     # ------------------------------------------------------------------
-    # Fetch past 24h hourly history per sensor
+    # Fetch past 24h hourly history for PM2.5 sensor
     # ------------------------------------------------------------------
-    for param_name, s_id in sensor_ids.items():
-        if param_name == "pm25":
-            try:
-                h_res = _request_with_retry(
-                    "GET",
-                    f"{base_oaq}/sensors/{s_id}/hours",
-                    params={
-                        "datetime_from": dt_from,
-                        "datetime_to": dt_to,
-                        "limit": 48,
-                    },
-                    headers=headers,
-                    timeout=30,
-                ).json()
-            except Exception as exc:
-                logger.error(f"OpenAQ hourly fetch failed for {param_name}: {exc}")
-                continue
+    try:
+        h_res = _request_with_retry(
+            "GET",
+            f"{base_oaq}/sensors/{openaq_payload['sensor_ids']["pm25"]}/hours",
+            params={
+                "datetime_from": dt_from,
+                "datetime_to": dt_to,
+                "limit": 48,
+            },
+            headers=headers,
+            timeout=30,
+        ).json()
+    except Exception as exc:
+        logger.error(f"OpenAQ hourly fetch failed for pm25: {exc}")
+        return openaq_payload
 
-            records = []
-            for r in h_res.get("results", []):
-                dt_str = r.get("period", {}).get("datetimeTo", {}).get("utc")
-                val = r.get("value")
-                if dt_str and val is not None:
-                    records.append({"time": dt_str, param_name: float(val)})
-            openaq_payload["hourly"][param_name] = records
+    records = []
+    for r in h_res.get("results", []):
+        dt_str = r.get("period", {}).get("datetimeTo", {}).get("utc")
+        val = r.get("value")
+        if dt_str and val is not None:
+            records.append({"time": dt_str, "pm25": float(val)})
+    openaq_payload["hourly"]["pm25"] = records
 
     logger.info("OpenAQ data fetched successfully for location %s", location_id)
     return openaq_payload
@@ -304,7 +388,8 @@ def fetch_all_sources(
     """
     om_weather = fetch_openmeteo_weather(lat, lon, past_hours, forecast_hours)
     om_aq = fetch_openmeteo_aqi(lat, lon, past_hours, forecast_hours)
-    openaq = fetch_openaq(location_id=4837117, api_key=openaq_api_key)
+    # openaq = fetch_openaq(location_id=4837117, api_key=openaq_api_key)
+    openaq = fetch_openaq(location_id=4814327, api_key=openaq_api_key)
 
     return {
         "om_weather": om_weather,
@@ -326,6 +411,120 @@ def _safe_float(val: Any, default: float = np.nan) -> float:
         return default
 
 
+def pm25_to_aqi(pm25: float) -> dict:
+    """
+    Convert PM2.5 concentration to US EPA AQI value and category.
+
+    Mirrors the JavaScript pm25ToAQI logic:
+      - Truncate to 1 decimal place per EPA rules
+      - Linear interpolation within breakpoint bands
+      - Returns {aqi, category}
+
+    Parameters
+    ----------
+    pm25 : float
+        PM2.5 concentration in µg/m³.
+
+    Returns
+    -------
+    dict
+        {'aqi': int, 'category': str}
+    """
+    if pm25 is None or np.isnan(pm25):
+        return {"aqi": np.nan, "category": "Unknown"}
+
+    # Truncate to 1 decimal place per EPA rules
+    c = np.floor(pm25 * 10) / 10
+
+    breakpoints = [
+        {"cLow": 0.0, "cHigh": 9.0, "iLow": 0, "iHigh": 50, "category": "Good"},
+        {"cLow": 9.1, "cHigh": 35.4, "iLow": 51, "iHigh": 100, "category": "Moderate"},
+        {"cLow": 35.5, "cHigh": 55.4, "iLow": 101, "iHigh": 150, "category": "Unhealthy for Sensitive Groups"},
+        {"cLow": 55.5, "cHigh": 125.4, "iLow": 151, "iHigh": 200, "category": "Unhealthy"},
+        {"cLow": 125.5, "cHigh": 225.4, "iLow": 201, "iHigh": 300, "category": "Very Unhealthy"},
+        {"cLow": 225.5, "cHigh": 500.4, "iLow": 301, "iHigh": 500, "category": "Hazardous"},
+    ]
+
+    bp = next((b for b in breakpoints if b["cLow"] <= c <= b["cHigh"]), None)
+    if bp is None:
+        return {"aqi": 500, "category": "Hazardous"}  # Above 500.4
+
+    aqi = int(round(((bp["iHigh"] - bp["iLow"]) / (bp["cHigh"] - bp["cLow"])) * (c - bp["cLow"]) + bp["iLow"]))
+
+    return {"aqi": aqi, "category": bp["category"]}
+
+
+def impute_feature_values(hist: pd.DataFrame) -> pd.DataFrame:
+    """
+    Impute nulls in the hourly history DataFrame using the same domain
+    strategies as history_backfill.impute_missing_values, so the single
+    current row built from `hist` has no missing metric values.
+
+    Strategies (per feature):
+      * temp_c        -> time-based linear interpolation, then bfill/ffill
+      * humidity_pct  -> linear interpolation, clipped 0–100, then bfill/ffill
+      * precip_mm     -> zero-fill (missing rain = no rain)
+      * rain_prob_pct -> linear interpolation, then bfill/ffill
+      * uv_index      -> interpolate; edge NaNs (likely night) -> 0
+      * wind_speed_ms -> linear interpolation, then bfill/ffill
+      * wind_dir_deg  -> sin/cos transform -> interpolate -> arctan2 -> %360
+                         (avoids averaging 350° and 10° into 180°)
+      * pm2_5         -> linear interpolation limited to 6-hour gaps,
+                         then bfill/ffill for edge gaps
+    """
+    df = hist.copy()
+    df.index = pd.to_datetime(df.index)
+
+    if "temperature_2m" in df.columns:
+        df["temperature_2m"] = (
+            df["temperature_2m"].interpolate(method="time").bfill().ffill()
+        )
+
+    if "relative_humidity_2m" in df.columns:
+        df["relative_humidity_2m"] = (
+            df["relative_humidity_2m"]
+            .interpolate(method="time")
+            .clip(0.0, 100.0)
+            .bfill()
+            .ffill()
+        )
+
+    if "precipitation" in df.columns:
+        # Missing rain reading means no rain occurred.
+        df["precipitation"] = df["precipitation"].fillna(0.0)
+
+    if "rain" in df.columns:
+        df["rain"] = df["rain"].interpolate(method="time").bfill().ffill()
+
+    if "uv_index" in df.columns:
+        # Interpolate daytime gaps; edge NaNs (likely night) -> 0.
+        df["uv_index"] = df["uv_index"].interpolate(method="time").fillna(0.0)
+
+    if "wind_speed_10m" in df.columns:
+        df["wind_speed_10m"] = (
+            df["wind_speed_10m"].interpolate(method="time").bfill().ffill()
+        )
+
+    if "wind_direction_10m" in df.columns:
+        # Sin/cos transform so 350° and 10° average near 0°, not 180°.
+        wind_rad = np.deg2rad(df["wind_direction_10m"])
+        wind_sin = np.sin(wind_rad)
+        wind_cos = np.cos(wind_rad)
+        wind_sin = wind_sin.interpolate(method="time").bfill().ffill()
+        wind_cos = wind_cos.interpolate(method="time").bfill().ffill()
+        df["wind_direction_10m"] = (
+            np.rad2deg(np.arctan2(wind_sin, wind_cos)) % 360.0
+        )
+
+    if "pm2_5" in df.columns:
+        # Linear interpolation for gaps < 6 hours; longer/edge gaps filled.
+        df["pm2_5"] = (
+            df["pm2_5"].interpolate(method="time", limit=6).bfill().ffill()
+        )
+
+    return df
+
+
 def build_features(raw: Dict[str, Any]) -> pd.DataFrame:
     """
     Build a single-row feature DataFrame from the raw API responses.
@@ -339,6 +538,7 @@ def build_features(raw: Dict[str, Any]) -> pd.DataFrame:
       - UV Index (from Open-Meteo AQ API)
       - Wind speed (m/s) and direction (degrees)
       - PM2.5 (from OpenAQ API)
+      - AQI (calculated from PM2.5 using US EPA breakpoints)
 
     Also adds temporal, cyclical, rolling, lag/difference, and
     domain-specific interaction features.
@@ -348,14 +548,16 @@ def build_features(raw: Dict[str, Any]) -> pd.DataFrame:
     openaq_data = raw.get("openaq", {})
 
     timestamp_str = w_curr.get("time")
-    timestamp_utc = (
-        pd.to_datetime(timestamp_str).floor("h") if timestamp_str else pd.Timestamp.utcnow().floor("h")
+    timestamp = (
+        pd.to_datetime(timestamp_str).floor("h")
+        if timestamp_str
+        else pd.Timestamp.now(tz=KARACHI_TZ).floor("h").tz_localize(None)
     )
 
     temp_c = _safe_float(w_curr.get("temperature_2m"))
     humidity_pct = _safe_float(w_curr.get("relative_humidity_2m"))
     precip_mm = _safe_float(w_curr.get("precipitation"))
-    rain_prob_pct = _safe_float(w_curr.get("precipitation_probability"))
+    # rain_prob_pct = _safe_float(w_curr.get("precipitation_probability"))
     rain_mm = _safe_float(w_curr.get("rain"))
     wind_speed_ms = _safe_float(w_curr.get("wind_speed_10m"))
     wind_dir_deg = _safe_float(w_curr.get("wind_direction_10m"))
@@ -373,21 +575,23 @@ def build_features(raw: Dict[str, Any]) -> pd.DataFrame:
     except Exception as exc:
         logger.warning(f"OpenAQ parsing warning: {exc}")
 
-    hour = timestamp_utc.hour
-    day_of_week = timestamp_utc.dayofweek
-    month = timestamp_utc.month
+    hour = timestamp.hour
+    day_of_week = timestamp.dayofweek
+    month = timestamp.month
     is_weekend = 1 if day_of_week >= 5 else 0
 
-    wind_dir_rad = np.deg2rad(wind_dir_deg) if not np.isnan(wind_dir_deg) else 0.0
+    # wind_dir_rad is recomputed below from the imputed base_row["wind_dir_deg"]
+    # (after missing hourly values are filled in).
+    wind_dir_rad = 0.0
 
-    precip_val = rain_mm if not np.isnan(rain_mm) else precip_mm
+    # precip_val = rain_mm if not np.isnan(rain_mm) else precip_mm
 
     base_row = {
-        "timestamp_utc": timestamp_utc,
+        "timestamp": timestamp,
         "temp_c": temp_c,
         "humidity_pct": humidity_pct,
-        "precip_mm": precip_val,
-        "rain_prob_pct": rain_prob_pct,
+        "precip_mm": precip_mm,
+        "rain_prob_pct": rain_mm,
         "uv_index": om_aq_uv_index,
         "wind_speed_ms": wind_speed_ms,
         "wind_dir_deg": wind_dir_deg,
@@ -406,7 +610,7 @@ def build_features(raw: Dict[str, Any]) -> pd.DataFrame:
         "temperature_2m": w_hourly.get("temperature_2m", [np.nan] * len(times)),
         "relative_humidity_2m": w_hourly.get("relative_humidity_2m", [np.nan] * len(times)),
         "precipitation": w_hourly.get("precipitation", [np.nan] * len(times)),
-        "precipitation_probability": w_hourly.get("precipitation_probability", [np.nan] * len(times)),
+        "rain": w_hourly.get("rain", [np.nan] * len(times)),
         "wind_speed_10m": w_hourly.get("wind_speed_10m", [np.nan] * len(times)),
         "wind_direction_10m": w_hourly.get("wind_direction_10m", [np.nan] * len(times)),
     }).set_index("timestamp")
@@ -439,6 +643,29 @@ def build_features(raw: Dict[str, Any]) -> pd.DataFrame:
     if "uv_index" not in hist.columns:
         hist["uv_index"] = np.nan
 
+    # ------------------------------------------------------------------
+    # Impute missing hourly values using the same domain strategies as the
+    # history backfill script, so the current row / derived features have
+    # no gaps.
+    # ------------------------------------------------------------------
+    hist = impute_feature_values(hist)
+
+    # Fill any current-row NaNs from the imputed hourly history (latest value)
+    if not hist.empty:
+        _last = hist.iloc[-1]
+        for _col, _hist_col in [
+            ("temp_c", "temperature_2m"),
+            ("humidity_pct", "relative_humidity_2m"),
+            ("precip_mm", "precipitation"),
+            ("rain_prob_pct", "rain"),
+            ("uv_index", "uv_index"),
+            ("wind_speed_ms", "wind_speed_10m"),
+            ("wind_dir_deg", "wind_direction_10m"),
+            ("pm2_5", "pm2_5"),
+        ]:
+            if _hist_col in _last.index and pd.isna(base_row[_col]):
+                base_row[_col] = float(_last[_hist_col])
+
     def get_diff(series: pd.Series, periods: int) -> float:
         if len(series) < periods + 1:
             return np.nan
@@ -453,6 +680,13 @@ def build_features(raw: Dict[str, Any]) -> pd.DataFrame:
         if len(series) < window:
             return np.nan
         return float(series.tail(window).std())
+
+    # Recompute from imputed base_row wind_dir_deg (filled from hourly history).
+    wind_dir_rad = (
+        np.deg2rad(base_row["wind_dir_deg"])
+        if not np.isnan(base_row["wind_dir_deg"])
+        else 0.0
+    )
 
     engineered_row = dict(base_row)
 
@@ -496,11 +730,16 @@ def build_features(raw: Dict[str, Any]) -> pd.DataFrame:
         "temp_roll_std_6h": get_roll_std(hist["temperature_2m"], 6),
     })
 
-    pm25_val = openaq_pm2_5
+    # Use the imputed pm2_5 (OpenAQ latest, filled from hourly history if missing).
+    pm25_val = base_row["pm2_5"]
+
+    aqi_result = pm25_to_aqi(pm25_val)
 
     engineered_row.update({
         "pollution_dispersion_idx": pm25_val / (wind_speed_ms + 0.5) if not np.isnan(pm25_val) else np.nan,
         "temp_humidity_index": temp_c * (humidity_pct / 100.0) if not np.isnan(temp_c) and not np.isnan(humidity_pct) else np.nan,
+        "aqi": aqi_result["aqi"],
+        # "aqi_category": aqi_result["category"],
     })
 
     return pd.DataFrame([engineered_row])
@@ -513,6 +752,7 @@ def save_to_hopsworks(
     features_df: pd.DataFrame,
     feature_group_name: str = "weather_air_quality_features",
     feature_group_version: int = 1,
+    batch_size: int = 10000,
 ) -> bool:
     """
     Save the feature DataFrame to the Hopsworks Feature Store.
@@ -522,14 +762,18 @@ def save_to_hopsworks(
       - HOPSWORKS_PROJECT: Hopsworks project name
       - HOPSWORKS_HOST: (optional) Hopsworks host, defaults to cloud
 
+    Inserts data in batches to avoid timeouts with large DataFrames.
+
     Parameters
     ----------
     features_df : pd.DataFrame
-        The engineered features DataFrame (single row).
+        The engineered features DataFrame (single row or many rows).
     feature_group_name : str
         Name of the feature group to write to.
     feature_group_version : int
         Version of the feature group.
+    batch_size : int
+        Number of rows per insert batch.
 
     Returns
     -------
@@ -586,16 +830,34 @@ def save_to_hopsworks(
         fg = fs.get_or_create_feature_group(
             name=feature_group_name,
             version=feature_group_version,
-            primary_key=["timestamp_utc"],
+            primary_key=["timestamp"],
             description="Weather and air quality features from Open-Meteo and OpenAQ",
             online_enabled=True,
             time_travel_format="HUDI",
         )
 
-        fg.insert(features_df)
+        # Insert in batches to avoid timeouts with large DataFrames
+        total_rows = len(features_df)
+        num_batches = (total_rows + batch_size - 1) // batch_size
+
+        logger.info(
+            f"Inserting {total_rows} rows into Hopsworks in {num_batches} batch(es)"
+        )
+
+        for i in range(num_batches):
+            start_idx = i * batch_size
+            end_idx = min(start_idx + batch_size, total_rows)
+            batch_df = features_df.iloc[start_idx:end_idx]
+
+            fg.insert(batch_df)
+            logger.info(
+                f"  Batch {i + 1}/{num_batches}: inserted {len(batch_df)} rows "
+                f"({start_idx + 1}-{end_idx})"
+            )
+
         logger.info(
             f"Features saved to Hopsworks feature group '{feature_group_name}' "
-            f"v{feature_group_version}"
+            f"v{feature_group_version} ({total_rows} total rows)"
         )
         return True
 
@@ -604,10 +866,137 @@ def save_to_hopsworks(
         return False
 
 
+def _clean_secret(val: Optional[str]) -> Optional[str]:
+    """Strip whitespace and surrounding quotes from an env-secret value."""
+    if val is None:
+        return None
+    return val.strip().strip('"').strip("'")
+
+
+def load_last_day_from_hopsworks(
+    feature_group_name: str = "weather_air_quality_features",
+    feature_group_version: int = 1,
+) -> Optional[Dict[str, Any]]:
+    """
+    Read the Hopsworks feature group and return the feature row for the same
+    hour on the previous day in Karachi time.
+
+    Used as a fallback when the live weather APIs fail: the pipeline copies
+    last day's current-hour data so it still emits a feature row.
+
+    Returns None if Hopsworks is unavailable, has no credentials, or the
+    feature group holds no matching row.
+    """
+    try:
+        import hopsworks
+    except ImportError:
+        logger.warning("hopsworks not installed — cannot use Hopsworks fallback.")
+        return None
+
+    api_key = _clean_secret(os.getenv("HOPSWORKS_API_KEY"))
+    project_name = _clean_secret(os.getenv("HOPSWORKS_PROJECT"))
+    host = _clean_secret(os.getenv("HOPSWORKS_HOST"))
+
+    if not api_key or not project_name:
+        logger.warning(
+            "HOPSWORKS_API_KEY or HOPSWORKS_PROJECT not set — "
+            "cannot use Hopsworks fallback."
+        )
+        return None
+
+    try:
+        project = hopsworks.login(
+            host=host,
+            project=project_name,
+            api_key_value=api_key,
+        )
+        fs = project.get_feature_store()
+        fg = fs.get_feature_group(
+            name=feature_group_name,
+            version=feature_group_version,
+        )
+        df = fg.read()
+    except Exception as exc:
+        logger.error(f"Hopsworks fallback read failed: {exc}")
+        return None
+
+    if df is None or df.empty or "timestamp" not in df.columns:
+        logger.warning("Hopsworks fallback feature group is empty — no row to copy.")
+        return None
+
+    df = df.copy()
+    ts = pd.to_datetime(df["timestamp"])
+    if getattr(ts.dt, "tz", None) is not None:
+        ts = ts.dt.tz_convert(KARACHI_TZ).dt.tz_localize(None)
+    df["timestamp"] = ts
+
+    now_khi = pd.Timestamp.now(tz=KARACHI_TZ).floor("h").tz_localize(None)
+    target = now_khi - pd.Timedelta(days=1)
+
+    match = df[df["timestamp"] == target]
+    if match.empty:
+        # Nearest previous row (asof) if the exact hour is missing.
+        prev = df.sort_values("timestamp")
+        prev = prev[prev["timestamp"] <= target]
+        if prev.empty:
+            logger.warning("Hopsworks fallback: no row at/before last day's hour.")
+            return None
+        match = prev.tail(1)
+
+    row = match.iloc[0].to_dict()
+    logger.info(
+        f"Hopsworks fallback: copying last-day data from {row['timestamp']}"
+    )
+    return row
+
+
+def _synthesize_raw_from_fallback(
+    fb: Dict[str, Any],
+    now_khi,
+) -> Dict[str, Any]:
+    """
+    Build a minimal raw payload from a Hopsworks fallback row so that
+    build_features can emit a complete single-row feature DataFrame stamped
+    with the current Karachi time but carrying last day's values.
+    """
+    now_str = now_khi.strftime("%Y-%m-%dT%H:%M")
+
+    return {
+        "om_weather": {
+            "current": {
+                "time": now_str,
+                "temperature_2m": fb.get("temp_c"),
+                "relative_humidity_2m": fb.get("humidity_pct"),
+                "precipitation": fb.get("precip_mm"),
+                "rain": fb.get("rain_prob_pct"),
+                "wind_speed_10m": fb.get("wind_speed_ms"),
+                "wind_direction_10m": fb.get("wind_dir_deg"),
+            },
+            "hourly": {
+                "time": [now_str],
+                "temperature_2m": [fb.get("temp_c")],
+                "relative_humidity_2m": [fb.get("humidity_pct")],
+                "precipitation": [fb.get("precip_mm")],
+                "rain": [fb.get("rain_prob_pct")],
+                "wind_speed_10m": [fb.get("wind_speed_ms")],
+                "wind_direction_10m": [fb.get("wind_dir_deg")],
+            },
+        },
+        "om_aq": {
+            "current": {"uv_index": fb.get("uv_index")},
+            "hourly": {"time": [now_str], "uv_index": [fb.get("uv_index")]},
+        },
+        "openaq": {
+            "latest": {"pm25": fb.get("pm2_5")},
+            "hourly": {"pm25": [{"time": now_str, "pm25": fb.get("pm2_5")}]},
+        },
+    }
+
+
 def main():
     """Entry point for running the pipeline as a script."""
-    lat = float(os.getenv("WEATHER_LAT", None))
-    lon = float(os.getenv("WEATHER_LON", None))
+    lat = float(os.getenv("WEATHER_LAT", 24.8607))
+    lon = float(os.getenv("WEATHER_LON", 67.0011))
 
     openaq_api_key = os.getenv("OPENAQ_API_KEY", None)
     if openaq_api_key:
@@ -616,6 +1005,25 @@ def main():
     logger.info(f"Starting feature pipeline for lat={lat}, lon={lon}")
 
     raw_data = fetch_all_sources(lat, lon, openaq_api_key=openaq_api_key)
+
+    # ------------------------------------------------------------------
+    # Fallback: if the live weather API returned no data, copy last day's
+    # same-hour row from the Hopsworks feature store so the pipeline still
+    # emits a feature row (stamped with the current Karachi time).
+    # ------------------------------------------------------------------
+    if not raw_data.get("om_weather"):
+        logger.warning(
+            "Open-Meteo weather API returned no data — falling back to "
+            "Hopsworks feature store (last day, same hour)."
+        )
+        now_khi = pd.Timestamp.now(tz=KARACHI_TZ).floor("h").tz_localize(None)
+        fb_row = load_last_day_from_hopsworks()
+        if fb_row is None:
+            logger.error(
+                "Hopsworks fallback unavailable — proceeding with empty API data."
+            )
+        else:
+            raw_data = _synthesize_raw_from_fallback(fb_row, now_khi)
 
     raw_path = "raw_api_response.json"
     with open(raw_path, "w") as f:
